@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Opens Restic Console in its own Chrome app window and signs it in.
+# The token never goes on a command line: it is sent to the local service in a
+# header (via stdin) in exchange for a one-time code valid for 60 seconds.
+set -euo pipefail
+PORT=8790
+URL="http://127.0.0.1:$PORT"
+TOKEN_FILE=/etc/restic-console/token
+PROFILE="$HOME/.local/share/restic-console/chrome"
+err() { notify-send -a "Restic Console" -i dialog-error "Restic Console" "$1" 2>/dev/null || echo "$1" >&2; exit 1; }
+
+systemctl is-active --quiet restic-console.service || err "The restic-console service is not running. Run: sudo systemctl start restic-console"
+[ -r "$TOKEN_FILE" ] || err "Cannot read $TOKEN_FILE. Log out and back in if install.sh just added you to its group."
+code=$( { printf 'X-Token: '; cat "$TOKEN_FILE"; } | curl -fsS -m 5 -X POST -H 'Content-Type: application/json' -H @- --data '{}' "$URL/api/handoff" \
+        | sed -nE 's/.*"code": *"([0-9a-f]+)".*/\1/p') || true
+[ -n "$code" ] || err "Restic Console service did not answer on $URL"
+mkdir -p "$PROFILE"
+CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser) || err "Chrome not found"
+exec "$CHROME" --user-data-dir="$PROFILE" --class=ResticConsole --no-first-run --no-default-browser-check \
+  --app="$URL/#code=$code" --window-size=1280,860 "$@"

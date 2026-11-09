@@ -1,0 +1,8 @@
+[Unit]
+Description=Restic Console failure alert for job %i
+
+[Service]
+Type=oneshot
+User=root
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 -I /opt/restic-console/runner.py --on-failure %i

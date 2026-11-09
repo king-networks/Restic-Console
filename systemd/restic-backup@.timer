@@ -1,0 +1,10 @@
+[Unit]
+Description=Restic Console schedule for job %i
+
+[Timer]
+# OnCalendar= and friends come from the drop-in Restic Console writes:
+#   /etc/systemd/system/restic-backup@<job>.timer.d/schedule.conf
+Persistent=true
+
+[Install]
+WantedBy=timers.target

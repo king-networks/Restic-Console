@@ -1,0 +1,17 @@
+[Unit]
+Description=Restic Console (local web UI for restic backup jobs)
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 -I /opt/restic-console/server.py
+Restart=on-failure
+RestartSec=3
+# Listens on 127.0.0.1 only. Root is needed for repository passwords and to manage the job timers.
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

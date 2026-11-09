@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Restic Console
+GenericName=Backups
+Comment=See and manage the restic system backups
+Exec=/usr/local/bin/restic-console
+Icon=/opt/restic-console/static/icon.svg
+Terminal=false
+Categories=System;Utility;Archiving;
+Keywords=backup;restic;restore;snapshot;
+StartupWMClass=ResticConsole
