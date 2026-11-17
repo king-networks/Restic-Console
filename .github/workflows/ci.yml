@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install restic (Linux, official binary: Ubuntu 22.04's package is too old)
+      - name: "Install restic (Linux; official binary, since Ubuntu 22.04's package is too old)"
         if: runner.os == 'Linux'
         run: |
           curl -fsSL https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2 | bunzip2 > restic
