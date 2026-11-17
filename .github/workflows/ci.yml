@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python (ruff)
+        run: pip install ruff && ruff check .
+      - name: Shell scripts (shellcheck)
+        run: shellcheck linux/install.sh linux/uninstall.sh linux/restic-console
+      - name: Web UI script syntax
+        run: |
+          sed -n '/<script>/,/<\/script>/p' static/index.html | sed '1d;$d' > "$RUNNER_TEMP/app.js"
+          node --check "$RUNNER_TEMP/app.js"
+
+  powershell-lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PowerShell scripts (PSScriptAnalyzer)
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path windows -Recurse -Severity Error
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.13"]
+        include:          # oldest supported Python; ubuntu-latest has no 3.9 build any more
+          - os: ubuntu-22.04
+            python: "3.9"
+          - os: windows-latest
+            python: "3.9"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: "Install restic (Linux; official binary, since Ubuntu 22.04's package is too old)"
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2 | bunzip2 > restic
+          sudo install -m 755 restic /usr/local/bin/restic && rm restic && restic version
+      - name: Install restic (Windows)
+        if: runner.os == 'Windows'
+        run: choco install restic -y --no-progress; restic version
+      - name: Unit and integration tests
+        run: python -m unittest discover -s tests -v
+        env:
+          RC_TEST_SHOW_LOG: "1"
+
+  install-linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install restic
+        run: sudo apt-get update -q && sudo apt-get install -y -q restic
+      - name: Install Restic Console
+        run: sudo ./linux/install.sh --user "$USER"
+      - name: Smoke test (systemd runs the job)
+        run: sudo python3 tests/smoke.py --workdir "$GITHUB_WORKSPACE/smoke"
+      - name: Service logs
+        if: always()
+        run: sudo journalctl -u restic-console -u 'restic-backup@*' -n 200 --no-pager
+      - name: Uninstall
+        run: |
+          sudo ./linux/uninstall.sh --purge
+          test ! -e /opt/restic-console && test ! -e /etc/restic-console
+
+  install-distros:
+    # Each distribution boots systemd in a privileged container, then runs the real installer and smoke test.
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 12 (restic too old, downloads the official one)
+            image: debian:12
+            setup: apt-get update -q && apt-get install -y -q systemd python3 sudo ca-certificates
+            args: --get-restic
+          - name: Fedora
+            image: fedora:latest
+            setup: dnf install -y -q systemd python3 restic tar util-linux shadow-utils procps-ng
+          - name: Rocky Linux 9 (Python 3.9, no restic package)
+            image: rockylinux:9
+            setup: dnf install -y -q systemd python3 tar util-linux shadow-utils procps-ng
+            args: --get-restic
+          - name: Arch Linux
+            image: archlinux:latest
+            setup: pacman -Syu --noconfirm --needed systemd python restic tar util-linux shadow
+          - name: openSUSE Tumbleweed
+            image: opensuse/tumbleweed
+            setup: zypper -n in systemd python3 restic tar util-linux shadow procps
+    name: install (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot the distribution with systemd
+        run: |
+          printf 'FROM %s\nRUN %s && useradd -m alice\nCMD ["/usr/lib/systemd/systemd"]\n' \
+            "${{ matrix.image }}" "${{ matrix.setup }}" > "$RUNNER_TEMP/Dockerfile"
+          docker build -q -t distro "$RUNNER_TEMP"
+          docker run -d --name rctest --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v "$PWD:/src:ro" distro
+          for _ in $(seq 60); do
+            s=$(docker exec rctest systemctl is-system-running 2>/dev/null || true)
+            case "$s" in running|degraded) break ;; esac
+            sleep 1
+          done
+          echo "systemd: $s"
+      - name: Install Restic Console
+        run: docker exec rctest /src/linux/install.sh --user alice ${{ matrix.args }}
+      - name: Smoke test (systemd runs the job)
+        run: docker exec rctest sh -c 'python3 -I /src/tests/smoke.py --workdir /root/smoke'
+      - name: Service logs
+        if: always()
+        run: docker exec rctest journalctl -u restic-console -u 'restic-backup@*' -n 200 --no-pager || true
+      - name: Uninstall
+        run: |
+          docker exec rctest /src/linux/uninstall.sh --purge
+          docker exec rctest sh -c 'test ! -e /opt/restic-console && test ! -e /etc/restic-console'
+
+  install-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install restic
+        run: choco install restic -y --no-progress
+      - name: Install Restic Console (Windows PowerShell 5.1, as users run it)
+        shell: powershell
+        run: .\windows\install.ps1 -Python (Get-Command python).Source
+      - name: Smoke test (Task Scheduler runs the job)
+        run: python tests/smoke.py --workdir "$env:GITHUB_WORKSPACE\smoke"
+      - name: Task state
+        if: always()
+        shell: powershell
+        run: |
+          Get-ScheduledTask -TaskPath "\ResticConsole\" | Get-ScheduledTaskInfo | Format-List TaskName, LastRunTime, LastTaskResult, NextRunTime
+          Get-ChildItem -Recurse "$env:ProgramData\ResticConsole\state" -Filter *.log | ForEach-Object { "--- $($_.FullName)"; Get-Content $_.FullName -Tail 60 }
+      - name: Uninstall
+        shell: powershell
+        run: |
+          .\windows\uninstall.ps1 -Purge
+          if (Test-Path "$env:ProgramFiles\ResticConsole") { throw "program files left behind" }
+          if (Get-ScheduledTask -TaskPath "\ResticConsole\" -ErrorAction SilentlyContinue) { throw "tasks left behind" }

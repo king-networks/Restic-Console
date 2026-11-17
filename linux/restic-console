@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Opens Restic Console in its own browser app window and signs it in.
+# The token never goes on a command line: it is sent to the local service in a
+# header in exchange for a one-time code valid for 60 seconds.
+set -euo pipefail
+PORT=8790
+URL="http://127.0.0.1:$PORT"
+TOKEN_FILE=/etc/restic-console/token
+PROFILE="$HOME/.local/share/restic-console/browser"
+err() { notify-send -a "Restic Console" -i dialog-error "Restic Console" "$1" 2>/dev/null || echo "$1" >&2; exit 1; }
+
+systemctl is-active --quiet restic-console.service || err "The restic-console service is not running. Run: sudo systemctl start restic-console"
+[ -r "$TOKEN_FILE" ] || err "Cannot read $TOKEN_FILE. You need to be in the restic-console group (log out and back in after installing)."
+PYTHON=@PYTHON@          # filled in by install.sh
+command -v "$PYTHON" >/dev/null || PYTHON=python3
+code=$("$PYTHON" -I -c '
+import json, sys, urllib.request
+token = open(sys.argv[1]).read().strip()
+op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+r = urllib.request.Request(sys.argv[2] + "/api/handoff", data=b"{}", method="POST",
+                           headers={"Content-Type": "application/json", "X-Token": token})
+print(json.load(op.open(r, timeout=5))["code"])' "$TOKEN_FILE" "$URL" 2>/dev/null) || true
+[ -n "$code" ] || err "Restic Console service did not answer on $URL"
+
+for b in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge microsoft-edge-stable brave-browser brave vivaldi-stable; do
+  if CHROME=$(command -v "$b"); then
+    mkdir -p "$PROFILE"
+    exec "$CHROME" --user-data-dir="$PROFILE" --class=ResticConsole --no-first-run --no-default-browser-check \
+      --app="$URL/#code=$code" --window-size=1280,860 "$@"
+  fi
+done
+# No Chromium-based browser: open a normal tab in the default browser instead.
+exec xdg-open "$URL/#code=$code"

@@ -1,6 +1,6 @@
 [Unit]
 Description=Restic Console backup job %i
-Documentation=https://restic.readthedocs.io/
+Documentation=https://github.com/king-networks/Restic-Console
 Wants=network-online.target
 After=network-online.target remote-fs.target
 OnFailure=restic-backup-failed@%i.service
@@ -9,7 +9,9 @@ OnFailure=restic-backup-failed@%i.service
 Type=oneshot
 User=root
 Environment=HOME=/root
-ExecStart=/usr/bin/python3 -I /opt/restic-console/runner.py %i
+ExecStart=@PYTHON@ -I @PREFIX@/runner.py %i
+# On stop, the runner gets SIGTERM, stops restic and records the run as stopped.
+TimeoutStopSec=90
 # Stay out of the way of interactive use.
 Nice=10
 IOSchedulingClass=best-effort

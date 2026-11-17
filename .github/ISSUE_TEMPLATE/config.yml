@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/king-networks/Restic-Console/security/advisories/new
+    about: Please report security problems privately.
+  - name: restic itself
+    url: https://forum.restic.net/
+    about: Questions about restic (repositories, backends, flags) are best asked on the restic forum.
