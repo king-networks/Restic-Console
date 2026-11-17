@@ -70,7 +70,7 @@ fi
 PYTHON=$(readlink -f "$PYTHON")
 
 # ---------------------------------------------------------------- restic 0.16+
-restic_ver() { "$1" version 2>/dev/null | awk '{print $2}'; }
+restic_ver() { local _ v; read -r _ v _ < <("$1" version 2>/dev/null) || true; echo "${v:-}"; }
 restic_ok() { "$PYTHON" -c "import sys; v=tuple(int(x) for x in '$1'.split('.')[:2]); sys.exit(v < (0, 16))" 2>/dev/null; }
 [ -n "$RESTIC" ] || RESTIC=$(command -v restic 2>/dev/null || true)
 rv=""; [ -n "$RESTIC" ] && rv=$(restic_ver "$RESTIC")
@@ -99,7 +99,7 @@ echo "   user    $USER_NAME ($USER_HOME)"
 # ---------------------------------------------------------------- install
 echo "== Group $GROUP (members can use the app)"
 getent group "$GROUP" >/dev/null || groupadd --system "$GROUP"
-if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx "$GROUP"; then
+if [[ " $(id -nG "$USER_NAME") " != *" $GROUP "* ]]; then
   usermod -aG "$GROUP" "$USER_NAME"
   ADDED_GROUP=1
 fi

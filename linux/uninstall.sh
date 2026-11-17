@@ -4,7 +4,7 @@
 #   sudo ./linux/uninstall.sh --purge   # also deletes them. Save your repository passwords first!
 set -euo pipefail
 [ "$EUID" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
-for t in $(systemctl list-units --all --plain --no-legend 'restic-backup@*.timer' | awk '{print $1}'); do
+systemctl list-units --all --plain --no-legend 'restic-backup@*.timer' | while read -r t _; do
   systemctl disable --now "$t" || true
 done
 systemctl disable --now restic-console.service 2>/dev/null || true
