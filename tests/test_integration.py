@@ -44,8 +44,10 @@ class IntegrationTest(unittest.TestCase):
                         "--restic", RESTIC], env=cls.env, check=True)
         with open(t("etc", "token")) as f:
             cls.token = f.read().strip()
+        # The server log goes to a file: an unread pipe fills up (fast on Windows) and blocks the server.
+        cls.log = open(t("server.log"), "w")
         cls.srv = subprocess.Popen([sys.executable, "-I", os.path.join(ROOT, "server.py")], env=cls.env,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                                   stdout=cls.log, stderr=subprocess.STDOUT)
         for _ in range(50):
             try:
                 socket.create_connection(("127.0.0.1", cls.port), 0.2).close()
@@ -58,6 +60,10 @@ class IntegrationTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.terminate()
         cls.srv.wait(10)
+        cls.log.close()
+        if os.environ.get("RC_TEST_SHOW_LOG"):
+            with open(cls.t("server.log")) as f:
+                print("---- server log ----\n" + f.read()[-6000:])
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def req(self, method, path, body=None, headers=None, raw=False):

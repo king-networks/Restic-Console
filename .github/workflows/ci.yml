@@ -43,7 +43,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.9", "3.13"]
+        python: ["3.13"]
+        include:          # oldest supported Python; ubuntu-latest has no 3.9 build any more
+          - os: ubuntu-22.04
+            python: "3.9"
+          - os: windows-latest
+            python: "3.9"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +63,8 @@ jobs:
         run: choco install restic -y --no-progress; restic version
       - name: Unit and integration tests
         run: python -m unittest discover -s tests -v
+        env:
+          RC_TEST_SHOW_LOG: "1"
 
   install-linux:
     needs: test
