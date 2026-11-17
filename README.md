@@ -1,94 +1,105 @@
 # Restic Console
 
-A small local web app for running [restic](https://restic.net) backups on a Linux desktop or server:
-backup jobs on systemd timers, a snapshot browser with restore and download, run history with live logs,
-and failure alerts by desktop notification, email or webhook.
+[![CI](https://github.com/king-networks/Restic-Console/actions/workflows/ci.yml/badge.svg)](https://github.com/king-networks/Restic-Console/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-No dependencies beyond **restic**, **Python 3.8+** (standard library only) and **systemd**.
-It opens as its own app window in Chrome or Chromium, or in any browser at `http://127.0.0.1:8790`.
+A small local web app for running [restic](https://restic.net) backups on **Linux and Windows**: backup jobs on a
+schedule, a snapshot browser with restore and download, run history with live logs, and failure alerts by desktop
+notification, email or webhook.
+
+No dependencies beyond **restic** and **Python 3.9+** (standard library only). It runs as a background service on your
+own machine, listens on `127.0.0.1` only, and opens as its own app window.
+
+![Overview](docs/images/overview.png)
 
 ## Features
 
-- **Multiple jobs**: each with its own folders, destination, schedule, retention, excludes and alert rules.
-  For example, the whole OS nightly plus `~/Projects` every hour.
-- **Multiple destinations**: local disks, NFS/SMB mounts, or any restic backend (`sftp:`, `rest:`, `s3:`, `b2:`, …).
+- **Multiple jobs**, each with its own folders, destination, schedule, retention, excludes and alert rules.
+  For example, the whole system weekly plus `~/Projects` every hour.
+- **Multiple destinations**: local or USB disks, network shares, or any restic backend (`sftp:`, `rest:`, `s3:`, `b2:`, …).
   Create a new repository from the app, or connect an existing one.
-- **Schedules** with a builder (every N minutes or hours, daily, weekly) or raw systemd calendar expressions,
-  with a preview of the next run times. Catch-up after power-off and random delay are supported.
+- **Schedules** with a builder (every N minutes or hours, daily, weekly), a preview of the next run times,
+  catch-up after the computer was off, and an optional random delay.
 - **Snapshots**: browse any snapshot like a file manager, download files (or folders as a zip), restore into a
   new folder, compare a snapshot with the previous one, forget snapshots.
-- **History**: every run read back from the systemd journal, with duration, data added and the full log, live while it runs.
+- **Run history**: every run with duration, data added and its full log, live while it runs.
 - **Alerts**: desktop notification, email over SMTP, and Slack/Mattermost/Discord webhooks. Each job picks failure,
   warnings and/or success. A run that crashes or gets killed still sends a failure alert.
 - **Maintenance** per destination: check (optionally re-reading a share of the data), size, prune, remove stale locks,
   retention preview.
-- Network storage is checked before every run, so a dead NAS never makes restic write into the empty mountpoint.
-- Jobs on the same repository wait for each other's locks (`--retry-lock`) instead of failing.
-- Shows Linux software RAID (`/proc/mdstat`) health on the overview when present.
+- Storage is checked before every run, so a dead NAS never makes restic write into an empty mountpoint.
+- Jobs on the same repository wait for each other's locks instead of failing.
+- **Windows**: backs up open files with Volume Shadow Copy, and can log in to SMB shares with their own username and password.
+- **Linux**: shows software RAID (`/proc/mdstat`) health on the overview when present.
+
+| Run history | Snapshots |
+|---|---|
+| ![Run history](docs/images/runs.png) | ![Snapshots](docs/images/snapshots.png) |
 
 ## Install
 
+You need restic 0.16 or newer and Python 3.9 or newer. Download the [latest release](https://github.com/king-networks/Restic-Console/releases)
+(or `git clone` this repository), then:
+
+### Linux (systemd)
+
 ```sh
-sudo apt install restic          # or your distro's package; needs restic 0.16+
-git clone <this repo> restic-console && cd restic-console
-sudo ./install.sh                # or: sudo ./install.sh --user alice
+sudo apt install restic python3          # Fedora: sudo dnf install restic python3
+sudo ./linux/install.sh                  # or: sudo ./linux/install.sh --user alice
 ```
 
-Then open **Restic Console** from the application menu (or run `restic-console`), add a destination, and create a job.
-Re-run `install.sh` to upgrade; your config, jobs and keys are kept. `sudo ./uninstall.sh` removes the app
-(add `--purge` to also delete `/etc/restic-console`). Backup repositories are never touched.
+Log out and back in once (the installer adds you to the `restic-console` group), then open **Restic Console** from the
+application menu or run `restic-console`. Details: [docs/linux.md](docs/linux.md).
+
+### Windows 10 / 11
+
+In an **administrator** PowerShell:
+
+```powershell
+winget install restic.restic
+winget install Python.Python.3.12 --scope machine
+# open a new administrator PowerShell so both are on PATH, then in the Restic Console folder:
+powershell -ExecutionPolicy Bypass -File .\windows\install.ps1
+```
+
+Then open **Restic Console** from the Start menu. Details: [docs/windows.md](docs/windows.md).
+
+### First steps
+
+1. **Destinations → Add destination**: pick a folder or backend, and let the app create the repository.
+2. **Destinations → Show password**: copy the repository password into your password manager. Without it, nobody can
+   restore your backups, including you.
+3. **Backup jobs → New job**: choose folders, a schedule and how many snapshots to keep. **Run now** to try it.
+4. **Settings**: turn on email or webhook alerts if you want to hear about failures away from the desk.
+
+Re-running the installer upgrades in place; your config, jobs, passwords and history are kept.
 
 ## How it works
 
-```
-restic-console.service    root, 127.0.0.1:8790     web UI + API (server.py)
-restic-backup@<job>.timer                          one per job; schedule in a drop-in the app writes
-restic-backup@<job>.service -> runner.py <job>     backup, forget/prune, check, alerts -> journal
-restic-backup-failed@<job>.service                 OnFailure= alert if the runner died without reporting
-```
+The app is a small Python web server running as **root** (Linux) or **SYSTEM** (Windows), because it has to read
+everything it backs up. Each job is run by the operating system's own scheduler (a systemd timer or a Task Scheduler
+task), so backups keep running whether or not the app window is open. See [docs/how-it-works.md](docs/how-it-works.md)
+for the architecture, the files it keeps, and the security model.
 
-| Path | What |
-|------|------|
-| `/opt/restic-console/` | program files |
-| `/etc/restic-console/config.json` | destinations, jobs, settings (no secrets) |
-| `/etc/restic-console/keys/` | repository and SMTP passwords, root-only |
-| `/etc/restic-console/excludes/<job>.txt` | per-job exclude patterns |
-| `/etc/restic-console/token` | UI sign-in token, readable by root and the desktop user's group |
-| `/etc/systemd/system/restic-backup@<job>.timer.d/schedule.conf` | per-job schedule |
-
-Snapshots are tagged with the job's tag and the host name. Retention only ever touches snapshots with that tag and host.
-
-## Security model
-
-- The service runs as **root** because restic needs to read everything it backs up and systemd needs root to manage timers.
-  It listens on **127.0.0.1 only**.
-- Every request needs a session cookie derived from `/etc/restic-console/token`. The launcher sends the token to the
-  local service in a header and gets back a one-time code (valid 60 s) for the browser URL, so the token never appears
-  on a command line. Requests with a foreign `Host` or `Origin` header are rejected (DNS-rebinding and CSRF protection).
-- Restores only write into new or empty folders under the configured restore roots (default: the desktop user's home),
-  and the restored files are given to the desktop user.
-- Repository passwords created by the app live in `/etc/restic-console/keys`. **Copy them to a password manager**
-  (Destinations → Show password): if the machine dies, the backups can't be restored without them.
-
-## Development
-
-Run the server unprivileged against scratch paths:
-
-```sh
-export RC_DEV=1 RC_PORT=8791 RC_ETC=$PWD/dev/etc RC_UNIT_DIR=$PWD/dev/units RC_CONFIG=$PWD/dev/etc/config.json
-mkdir -p dev/etc/keys dev/etc/excludes && echo devtoken > dev/etc/token
-python3 server.py      # then open http://127.0.0.1:8791 and paste "devtoken"
-```
-
-In dev mode nothing calls `systemctl` for writes, and "Run now" is disabled. `runner.py <job>` can be run directly
-with `RC_CONFIG` and `RC_STATE` pointing at scratch paths.
+**Security in one paragraph:** the server listens on 127.0.0.1 only and every request needs a session obtained with a
+secret token. Anyone who can read that token can make the service back up and download *any* file on the machine, so
+on Linux it is readable only by root and the `restic-console` group, and on Windows by Administrators and the desktop
+user you installed it for. Treat membership like admin rights. Repository passwords are kept in a root/admin-only folder.
 
 ## Limitations
 
-- Linux with systemd only, one machine per install (it backs up the machine it runs on).
-- No restore-in-place: restores always go to a new folder, and you copy back what you need.
-- The Activity list of app-started tasks resets when the service restarts. Backup run history comes from the journal and persists.
+- One machine per install: it backs up the computer it runs on.
+- No restore-in-place: restores always go into a new folder, and you copy back what you need.
+- On Windows, schedules come from the builder (every N minutes/hours, daily, weekly). Linux also accepts any
+  [systemd calendar expression](https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events).
+- macOS is not supported yet. The OS-specific code is all in `plat_linux.py` / `plat_windows.py`, so a `plat_macos.py`
+  using launchd is the place to start. Contributions are welcome.
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for running it in development mode
+and running the tests, and [SECURITY.md](SECURITY.md) for reporting a vulnerability privately.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Restic Console is an independent project and is not affiliated with restic.
