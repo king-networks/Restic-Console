@@ -10,6 +10,12 @@ notification, email or webhook.
 No dependencies beyond **restic** and **Python 3.9+** (standard library only). It runs as a background service on your
 own machine, listens on `127.0.0.1` only, and opens as its own app window.
 
+> [!IMPORTANT]
+> **Disclaimer.** Restic Console is free software provided **as is, without warranty of any kind**. You use it at your
+> own risk and are responsible for your own data. Test that you can restore your backups, keep your repository
+> passwords somewhere safe, and keep more than one copy of anything important. The authors are not liable for lost
+> data, failed backups or any other damage. See the [license](LICENSE) for the full terms.
+
 ![Overview](docs/images/overview.png)
 
 ## Features
@@ -104,4 +110,5 @@ and running the tests, and [SECURITY.md](SECURITY.md) for reporting a vulnerabil
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Restic Console is an independent project and is not affiliated with restic.
+MIT. See [LICENSE](LICENSE). The software is provided as is, without warranty; see the [disclaimer](#restic-console)
+above. Restic Console is an independent project and is not affiliated with or endorsed by the restic project.
