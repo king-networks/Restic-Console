@@ -55,9 +55,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install restic (Linux)
+      - name: Install restic (Linux, official binary: Ubuntu 22.04's package is too old)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q restic && restic version
+        run: |
+          curl -fsSL https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2 | bunzip2 > restic
+          sudo install -m 755 restic /usr/local/bin/restic && rm restic && restic version
       - name: Install restic (Windows)
         if: runner.os == 'Windows'
         run: choco install restic -y --no-progress; restic version
