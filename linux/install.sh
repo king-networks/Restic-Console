@@ -34,6 +34,7 @@ die() { echo "error: $*" >&2; exit 1; }
 warn() { echo "   note: $*" >&2; }
 
 # Package-manager hint for this distribution: pkg_hint <debian> <fedora> <suse> <arch>
+# shellcheck disable=SC1091  # read at run time on the target system
 DISTRO=$( (. /etc/os-release 2>/dev/null && echo " ${ID:-} ${ID_LIKE:-} ") || echo " ")
 pkg_hint() {
   case "$DISTRO" in

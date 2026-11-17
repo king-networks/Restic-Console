@@ -120,25 +120,25 @@ jobs:
           printf 'FROM %s\nRUN %s && useradd -m alice\nCMD ["/usr/lib/systemd/systemd"]\n' \
             "${{ matrix.image }}" "${{ matrix.setup }}" > "$RUNNER_TEMP/Dockerfile"
           docker build -q -t distro "$RUNNER_TEMP"
-          docker run -d --name d --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+          docker run -d --name rctest --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -v "$PWD:/src:ro" distro
           for _ in $(seq 60); do
-            s=$(docker exec d systemctl is-system-running 2>/dev/null || true)
+            s=$(docker exec rctest systemctl is-system-running 2>/dev/null || true)
             case "$s" in running|degraded) break ;; esac
             sleep 1
           done
           echo "systemd: $s"
       - name: Install Restic Console
-        run: docker exec d /src/linux/install.sh --user alice ${{ matrix.args }}
+        run: docker exec rctest /src/linux/install.sh --user alice ${{ matrix.args }}
       - name: Smoke test (systemd runs the job)
-        run: docker exec d sh -c 'python3 -I /src/tests/smoke.py --workdir /root/smoke'
+        run: docker exec rctest sh -c 'python3 -I /src/tests/smoke.py --workdir /root/smoke'
       - name: Service logs
         if: always()
-        run: docker exec d journalctl -u restic-console -u 'restic-backup@*' -n 200 --no-pager || true
+        run: docker exec rctest journalctl -u restic-console -u 'restic-backup@*' -n 200 --no-pager || true
       - name: Uninstall
         run: |
-          docker exec d /src/linux/uninstall.sh --purge
-          docker exec d sh -c 'test ! -e /opt/restic-console && test ! -e /etc/restic-console'
+          docker exec rctest /src/linux/uninstall.sh --purge
+          docker exec rctest sh -c 'test ! -e /opt/restic-console && test ! -e /etc/restic-console'
 
   install-windows:
     needs: test
