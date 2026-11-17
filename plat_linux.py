@@ -226,7 +226,8 @@ def restore_writer(user, target, path, is_dir):
     if is_dir:
         cmd = ["tar", "-x", "--no-same-owner", "-C", target]
     else:
-        cmd = ["install", "-D", "-m", "644", "/dev/stdin", os.path.join(target, path.lstrip("/"))]
+        # cat reads the pipe it inherits; re-opening /dev/stdin would fail because root owns the pipe.
+        cmd = ["sh", "-c", 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"', "sh", os.path.join(target, path.lstrip("/"))]
     return as_user_cmd(user, cmd)
 
 

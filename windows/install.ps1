@@ -34,6 +34,13 @@ $Data = Join-Path $env:ProgramData "ResticConsole"
 $Src = Split-Path -Parent $PSScriptRoot
 
 function Die($msg) { Write-Host "error: $msg" -ForegroundColor Red; exit 1 }
+function Quiet {
+    # Run a program ignoring its output. Windows PowerShell 5.1 turns redirected stderr into
+    # terminating errors when $ErrorActionPreference is Stop, so relax it for this call only.
+    $ErrorActionPreference = "Continue"
+    $out = & $args[0] @($args | Select-Object -Skip 1) 2>&1
+    return $out
+}
 function Step($msg) { Write-Host "== $msg" -ForegroundColor Cyan }
 
 $me = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -52,7 +59,7 @@ function Find-Python {
     if ($Python) { return $Python }
     $cands = @()
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($py) { $cands += (& $py.Source -3 -c "import sys; print(sys.executable)" 2>$null) }
+    if ($py) { $cands += @(Quiet $py.Source -3 -c "import sys; print(sys.executable)") | Where-Object { $_ -is [string] } }
     foreach ($c in (Get-Command python.exe -All -ErrorAction SilentlyContinue)) {
         if ($c.Source -notlike "*\WindowsApps\*") { $cands += $c.Source }   # skip the Microsoft Store stub
     }
@@ -86,7 +93,7 @@ Write-Host "   desktop user $User ($userProfile)"
 
 # ---------------------------------------------------------------- program files
 Step "Program files -> $Prefix"
-& schtasks.exe /end /tn "\ResticConsole\Server" 2>$null | Out-Null
+Quiet schtasks.exe /end /tn "\ResticConsole\Server" | Out-Null
 Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path $Prefix, "$Prefix\static", "$Prefix\windows" | Out-Null
 Remove-Item "$Prefix\*.py" -Force -ErrorAction SilentlyContinue
