@@ -1,20 +1,17 @@
-"""Notification channels for Restic Console: desktop, email (SMTP), webhook.
+"""Notification channels for Restic Console: desktop (Linux notify-send / Windows toast), email (SMTP), webhook.
 
 Channel settings live in config.json under settings.notifications; the SMTP password
-lives in its own root-only file (settings.notifications.email.password_file).
+lives in its own admin-only file (settings.notifications.email.password_file).
 send() never raises: it returns one (channel, ok, detail) tuple per enabled channel.
 """
 import json
 import os
-import pwd
 import smtplib
 import socket
 import ssl
-import subprocess
 import urllib.request
 from email.message import EmailMessage
 
-LEVEL_ICON = {"failure": "dialog-error", "warning": "dialog-warning", "success": "emblem-default", "test": "dialog-information"}
 LEVEL_EMOJI = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:", "test": ":information_source:"}
 
 
@@ -22,16 +19,8 @@ def _desktop(c, title, body, level):
     user = c.get("user")
     if not user:
         return False, "no desktop user set"
-    uid = pwd.getpwnam(user).pw_uid
-    bus = f"/run/user/{uid}/bus"
-    if not os.path.exists(bus):
-        return False, f"{user} is not logged in to a desktop session"
-    cmd = ["notify-send", "-u", "critical" if level == "failure" else "normal", "-a", "Restic Console",
-           "-i", LEVEL_ICON.get(level, "dialog-information"), title, body]
-    if os.geteuid() == 0:
-        cmd = ["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}", *cmd]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-    return p.returncode == 0, p.stderr.strip() or "sent"
+    import common      # late import: common imports the platform module
+    return common.plat.desktop_notify(user, title, body, level)
 
 
 def _email(c, title, body, level):
@@ -55,7 +44,7 @@ def _email(c, title, body, level):
         if c.get("username"):
             pw = ""
             if c.get("password_file") and os.path.exists(c["password_file"]):
-                with open(c["password_file"]) as f:
+                with open(c["password_file"], encoding="utf-8") as f:
                     pw = f.read().strip()
             s.login(c["username"], pw)
         s.send_message(msg)

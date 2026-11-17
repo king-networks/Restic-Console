@@ -1,0 +1,17 @@
+# Restic Console is not installed with pip: the installers in linux/ and windows/ copy the files.
+# This file only holds tool settings.
+
+[project]
+name = "restic-console"
+version = "0.2.0"
+description = "Local web UI for scheduled restic backups on Linux and Windows"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 140
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E402", "E731", "B023"]

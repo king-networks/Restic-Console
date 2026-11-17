@@ -129,6 +129,9 @@ const dur = s => { if (s == null || isNaN(s)) return "–"; s = Math.round(s); c
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
 
 let S = { view: "overview", cfg: null };
+const P = () => (S.cfg && S.cfg.platform) || S.hello || { name: "linux", features: {}, sep: "/", keys_dir: "", token_file: "" };
+const WIN = () => P().name === "windows";
+const isLocal = p => WIN() ? /^([A-Za-z]:[\\/]|\\\\)/.test(p) : p.startsWith("/");
 let timers = [];
 const clearTimers = () => { timers.forEach(clearInterval); timers = []; };
 
@@ -172,8 +175,9 @@ const VIEWS = [["overview","Overview"],["jobs","Backup jobs"],["destinations","D
 const PARENT = { jobedit: "jobs", browse: "snapshots", runlog: "runs", task: "activity" };
 function shell() {
   $("#root").innerHTML = `<div class="app"><nav><div class="brand"><img src="icon.svg" alt="">Restic Console</div>
-    ${VIEWS.map(([id, n]) => id === "sep" ? `<div class="sep"></div>` : `<a data-v="${id}">${n}</a>`).join("")}<div class="foot" id="foot">${esc(S.cfg.host)}</div></nav><main id="main"></main></div>`;
-  $$("nav a").forEach(a => a.onclick = () => go(a.dataset.v));
+    ${VIEWS.map(([id, n]) => id === "sep" ? `<div class="sep"></div>` : `<a data-v="${id}">${n}</a>`).join("")}<div class="foot"><span id="foot">${esc(S.cfg.host)}</span><br><span style="opacity:.8">v${esc(P().version || "")}</span> · <a id="logout" style="display:inline;padding:0;color:var(--muted);text-decoration:underline">Sign out</a></div></nav><main id="main"></main></div>`;
+  $$("nav a[data-v]").forEach(a => a.onclick = () => go(a.dataset.v));
+  $("#logout").onclick = async () => { try { await api("/api/logout", {}); } catch (e) { } renderLogin(); };
 }
 function go(view, arg) {
   clearTimers(); S.view = view;
@@ -275,7 +279,8 @@ function scheduleBuilder(el, cals) {
     <div class="row" id="bld" style="align-items:flex-end"></div>
     <div class="row" style="margin-top:10px"><span class="mono meta" id="bexpr"></span><span class="spacer"></span><button class="btn sm" id="badd">Add</button><button class="btn sm primary" id="brep">Use only this</button></div>`;
   const drawList = () => {
-    $("#cl", el).innerHTML = cals.map((c, i) => `<div class="list-row"><div><input type="text" class="mono-in" value="${esc(c)}" data-c="${i}"><div class="next-list" id="nx${i}">…</div></div>
+    const ro = !P().features.custom_calendar;
+    $("#cl", el).innerHTML = (ro ? `<div class="meta" style="margin-bottom:4px">On Windows, schedules are made with the quick builder below.</div>` : "") + cals.map((c, i) => `<div class="list-row"><div><input type="text" class="mono-in" value="${esc(c)}" data-c="${i}" ${ro ? "readonly" : ""}><div class="next-list" id="nx${i}">…</div></div>
       <button class="btn sm danger" data-rmc="${i}" ${cals.length < 2 ? "disabled" : ""}>Remove</button></div>`).join("");
     cals.forEach((c, i) => preview(i));
     $$("[data-c]", el).forEach(inp => { let t; inp.oninput = () => { cals[+inp.dataset.c] = inp.value; clearTimeout(t); t = setTimeout(() => preview(+inp.dataset.c), 400); }; });
@@ -317,7 +322,7 @@ async function jobedit(jid) {
   const cfg = S.cfg, isNew = !jid, dests = Object.entries(cfg.destinations);
   if (!dests.length) { main().innerHTML = `<h1>New backup job</h1><div class="card empty">Add a destination first. <button class="btn primary" id="gd">Add destination</button></div>`; $("#gd").onclick = () => go("destinations"); return; }
   const j = isNew ? { name: "", destination: dests[0][0], sources: [""], tag: "", enabled: true, prune: false, check: false, check_read_data_percent: 0,
-      one_file_system: false, exclude_caches: true, notify: { failure: true, warning: false, success: false },
+      one_file_system: false, exclude_caches: true, vss: true, notify: { failure: true, warning: false, success: false },
       retention: { last: 0, hourly: 24, daily: 7, weekly: 4, monthly: 6, yearly: 0 }, schedule: { calendars: ["*-*-* 00/1:00:00"], randomized_delay_min: 0, persistent: true }, excludes: DEV_EXCLUDES }
     : JSON.parse(JSON.stringify(cfg.jobs[jid]));
   const sources = j.sources.slice(), cals = j.schedule.calendars.slice(), notif = j.notify || { failure: true };
@@ -327,12 +332,13 @@ async function jobedit(jid) {
     <div class="stack" style="margin-top:16px">
     <div class="card"><h2>What and where</h2><div class="form-2">
       <label class="f">Name<input type="text" id="name" value="${esc(j.name)}" placeholder="Projects"></label>
-      <label class="f">ID (used in unit names)<input type="text" id="jid" class="mono-in" value="${esc(jid || "")}" ${isNew ? "" : "disabled"} placeholder="projects"></label>
+      <label class="f">ID<input type="text" id="jid" class="mono-in" value="${esc(jid || "")}" ${isNew ? "" : "disabled"} placeholder="projects"></label>
       <label class="f">Destination<select id="dest">${dests.map(([id, d]) => `<option value="${esc(id)}" ${id === j.destination ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select></label>
       <label class="f">Snapshot tag<input type="text" id="tag" class="mono-in" value="${esc(j.tag)}" ${isNew ? "" : "disabled"} placeholder="same as ID"></label></div>
       <h3>Folders to back up</h3><div id="srcs"></div><button class="btn sm" id="adds">+ Add folder</button>
       <div class="row" style="margin-top:14px;gap:22px"><label class="cb"><input type="checkbox" id="en" ${j.enabled ? "checked" : ""}> Schedule enabled</label>
-        <label class="cb"><input type="checkbox" id="ofs" ${j.one_file_system ? "checked" : ""}> Stay on one filesystem</label>
+        ${P().features.one_file_system ? `<label class="cb"><input type="checkbox" id="ofs" ${j.one_file_system ? "checked" : ""}> Stay on one filesystem</label>` : ""}
+        ${P().features.vss ? `<label class="cb" title="Volume Shadow Copy lets restic read files that are open or locked"><input type="checkbox" id="vss" ${j.vss !== false ? "checked" : ""}> Back up open files (Volume Shadow Copy)</label>` : ""}
         <label class="cb"><input type="checkbox" id="ec" ${j.exclude_caches ? "checked" : ""}> Skip folders tagged as caches</label></div></div>
     <div class="card"><h2>Schedule</h2><div id="sched"></div>
       <div class="row" style="margin-top:14px;gap:22px;align-items:flex-end"><label class="f">Random delay (minutes)<input type="number" id="rd" min="0" max="720" value="${j.schedule.randomized_delay_min}" style="width:150px"></label>
@@ -352,7 +358,7 @@ async function jobedit(jid) {
     </div>`;
   $("#back").onclick = () => go("jobs");
   const drawSrc = () => {
-    $("#srcs").innerHTML = sources.map((s, i) => `<div class="list-row"><div><input type="text" class="mono-in" data-s="${i}" value="${esc(s)}" placeholder="/home/you/Projects"><div class="next-list" id="si${i}"></div></div>
+    $("#srcs").innerHTML = sources.map((s, i) => `<div class="list-row"><div><input type="text" class="mono-in" data-s="${i}" value="${esc(s)}" placeholder="${WIN() ? "C:\\Users\\you\\Documents" : "/home/you/Projects"}"><div class="next-list" id="si${i}"></div></div>
       <button class="btn sm danger" data-rms="${i}" ${sources.length < 2 ? "disabled" : ""}>Remove</button></div>`).join("");
     sources.forEach((s, i) => checkSrc(i));
     $$("[data-s]").forEach(inp => { let t; inp.oninput = () => { sources[+inp.dataset.s] = inp.value; clearTimeout(t); t = setTimeout(() => checkSrc(+inp.dataset.s), 400); }; });
@@ -370,7 +376,7 @@ async function jobedit(jid) {
   if (isNew) { $("#name").oninput = () => { if (!$("#jid").dataset.t) $("#jid").value = slug($("#name").value); }; $("#jid").oninput = () => { $("#jid").dataset.t = 1; }; }
   const body = () => ({ id: isNew ? $("#jid").value.trim() : jid, new: isNew, name: $("#name").value, destination: $("#dest").value,
     sources: sources.map(s => s.trim()).filter(Boolean), tag: $("#tag").value.trim() || undefined, enabled: $("#en").checked,
-    one_file_system: $("#ofs").checked, exclude_caches: $("#ec").checked, prune: $("#prune").checked, check: $("#check").checked,
+    one_file_system: !!($("#ofs") && $("#ofs").checked), vss: !$("#vss") || $("#vss").checked, exclude_caches: $("#ec").checked, prune: $("#prune").checked, check: $("#check").checked,
     check_read_data_percent: +$("#pct").value, retention: Object.fromEntries($$("[data-keep]").map(i => [i.dataset.keep, +i.value])),
     schedule: { calendars: cals, randomized_delay_min: +$("#rd").value, persistent: $("#ps").checked },
     notify: { failure: $("#nf").checked, warning: $("#nw").checked, success: $("#ns").checked }, excludes: $("#ex").value });
@@ -413,26 +419,30 @@ function addDestDialog() {
   modal(`<h2>Add destination</h2>
     <div class="tabs" id="dm"><button data-m="create" class="on">Create a new repository</button><button data-m="existing">Connect an existing one</button></div>
     <div class="form-2"><label class="f">Name<input type="text" id="dn" placeholder="USB drive"></label><label class="f">ID<input type="text" id="did" class="mono-in" placeholder="usb"></label></div>
-    <label class="f" style="margin-top:12px">Repository location<input type="text" id="dr" class="mono-in" placeholder="/mnt/backup/restic   or   sftp:user@host:/srv/restic"></label>
+    <label class="f" style="margin-top:12px">Repository location<input type="text" id="dr" class="mono-in" placeholder="${WIN() ? "D:\\Backups\\restic   or   \\\\nas\\backup\\restic   or   sftp:user@host:/srv/restic" : "/mnt/backup/restic   or   sftp:user@host:/srv/restic"}"></label>
     <div class="meta" id="dhint" style="margin-top:6px"></div>
+    <div id="dshare" style="display:none;margin-top:12px"><div class="meta" style="margin-bottom:6px">Network share login, if the share needs one. The service runs as SYSTEM, so it cannot use your mapped drives or saved credentials.</div>
+      <div class="form-2"><label class="f">Share username<input type="text" id="dsu" autocomplete="off" placeholder="NAS\\backup"></label><label class="f">Share password<input type="password" id="dsp" autocomplete="off"></label></div></div>
     <div id="dx" style="margin-top:12px"></div>
     <div class="row" style="margin-top:16px"><span class="spacer"></span><button class="btn" data-x>Cancel</button><button class="btn primary" data-ok>Create repository</button></div>`,
   (m, close) => {
     let mode = "create";
     const draw = () => {
-      $("#dx", m).innerHTML = mode === "create" ? `<div class="banner info" style="margin:0">A random password is generated and kept in /etc/restic-console/keys. Copy it to a password manager afterwards (Show password on the destination): you need it to restore if this machine dies.</div>`
-        : `<div class="form-2"><label class="f">Password<input type="password" id="dpw" autocomplete="off"></label><label class="f">…or a password file<input type="text" id="dpf" class="mono-in" placeholder="/etc/restic/password"></label></div>`;
+      $("#dx", m).innerHTML = mode === "create" ? `<div class="banner info" style="margin:0">A random password is generated and kept in ${esc(P().keys_dir)}. Copy it to a password manager afterwards (Show password on the destination): you need it to restore if this machine dies.</div>`
+        : `<div class="form-2"><label class="f">Password<input type="password" id="dpw" autocomplete="off"></label><label class="f">…or a password file<input type="text" id="dpf" class="mono-in" placeholder="${WIN() ? "C:\\path\\to\\password.txt" : "/etc/restic/password"}"></label></div>`;
       $("[data-ok]", m).textContent = mode === "create" ? "Create repository" : "Connect";
     };
     $$("#dm button", m).forEach(b => b.onclick = () => { mode = b.dataset.m; $$("#dm button", m).forEach(x => x.classList.toggle("on", x === b)); draw(); });
     $("#dn", m).oninput = () => { if (!$("#did", m).dataset.t) $("#did", m).value = slug($("#dn", m).value); };
     $("#did", m).oninput = () => { $("#did", m).dataset.t = 1; };
-    let t; $("#dr", m).oninput = () => { clearTimeout(t); t = setTimeout(async () => { const p = $("#dr", m).value.trim(); if (!p.startsWith("/")) { $("#dhint", m).textContent = p ? "Remote backend: restic must be able to reach it as root (SSH keys, credentials in root's environment)." : ""; return; }
-      try { const r = await api(`/api/pathinfo?path=${encodeURIComponent(p)}`); $("#dhint", m).textContent = `On ${r.mount[0]} (${r.mount[1]})${["nfs","nfs4","cifs","autofs","fuse.sshfs"].includes(r.mount[1]) ? ": network storage, so jobs check that it is mounted first" : ""}${r.exists ? "" : ". The folder will be created."}`; } catch (e) { } }, 400); };
+    let t; $("#dr", m).oninput = () => { clearTimeout(t); t = setTimeout(async () => { const p = $("#dr", m).value.trim(); $("#dshare", m).style.display = WIN() && p.startsWith("\\\\") ? "" : "none";
+      if (!isLocal(p)) { $("#dhint", m).textContent = p ? `Remote backend: restic must be able to reach it as ${WIN() ? "SYSTEM" : "root"} (SSH keys, credentials in the service's environment).` : ""; return; }
+      try { const r = await api(`/api/pathinfo?path=${encodeURIComponent(p)}`); $("#dhint", m).textContent = `On ${r.mount[0]} (${r.mount[1]})${["nfs","nfs4","cifs","autofs","fuse.sshfs"].includes(r.mount[1]) ? ": network storage, so jobs check that it is mounted first" : r.mount[1] === "no-drive" ? ": that drive does not exist for the service. Use the UNC path (\\\\server\\share) instead of a mapped drive letter" : ""}${r.exists ? "" : ". The folder will be created."}`; } catch (e) { } }, 400); };
     draw();
     $("[data-x]", m).onclick = close;
     $("[data-ok]", m).onclick = async () => {
       const b = { id: $("#did", m).value.trim(), name: $("#dn", m).value.trim(), repo: $("#dr", m).value.trim(), mode };
+      if (WIN() && b.repo.startsWith("\\\\") && $("#dsu", m).value.trim()) { b.share_user = $("#dsu", m).value.trim(); b.share_password = $("#dsp", m).value; }
       if (mode === "existing") { b.password = $("#dpw", m).value; b.password_file = $("#dpf", m).value.trim() || undefined; }
       try { const r = await api("/api/destination/add", b); close();
         if (r.kind === "init") go("task", r.id); else { toast("Destination connected"); destinations(); } } catch (e) { fail(e); } };
@@ -496,14 +506,14 @@ async function browse(arg) {
 function restoreDialog(dest, snap, path, type) {
   const roots = S.cfg.settings.restore_roots || [];
   const stamp = new Date(snap.time).toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  const def = roots.length ? `${roots[0].replace(/\/$/, "")}/Restores/${snap.short_id}_${stamp}` : "";
+  const sep = P().sep || "/", def = roots.length ? `${roots[0].replace(/[\\/]$/, "")}${sep}Restores${sep}${snap.short_id}_${stamp}` : "";
   modal(`<h2>Restore ${type === "dir" ? "folder" : "file"}</h2>
     <p class="sub">Copies <span class="mono">${esc(path)}</span> from snapshot <span class="mono">${esc(snap.short_id)}</span> into a new folder, keeping its full path inside it. Nothing on the live system is overwritten.</p>
     <label class="f">Restore into (a new or empty folder inside ${roots.map(r => `<span class="mono">${esc(r)}</span>`).join(" or ") || "a restore folder from Settings"})<input type="text" id="tgt" class="mono-in" value="${esc(def)}"></label>
     <div class="row" style="margin-top:16px"><span class="spacer"></span><button class="btn" data-x>Cancel</button><button class="btn primary" data-ok>Restore</button></div>`,
     (m, close) => { $("[data-x]", m).onclick = close;
       $("[data-ok]", m).onclick = async () => {
-        try { const t = await api("/api/tasks", { kind: "restore", dest, snapshot: snap.id, path, target: $("#tgt", m).value.trim() }); close(); go("task", t.id); } catch (e) { fail(e); } }; });
+        try { const t = await api("/api/tasks", { kind: "restore", dest, snapshot: snap.id, path, type, target: $("#tgt", m).value.trim() }); close(); go("task", t.id); } catch (e) { fail(e); } }; });
 }
 
 /* ================================================================ runs */
@@ -513,7 +523,7 @@ async function runs(jid) {
   if (!ids.length) { main().innerHTML = `<h1>Run history</h1><div class="card empty">No jobs yet.</div>`; return; }
   jid = jid && S.cfg.jobs[jid] ? jid : S.runsJob && S.cfg.jobs[S.runsJob] ? S.runsJob : ids[0]; S.runsJob = jid;
   main().innerHTML = `<div class="row"><h1>Run history</h1><span class="spacer"></span><select id="js">${ids.map(id => `<option value="${esc(id)}" ${id === jid ? "selected" : ""}>${esc(S.cfg.jobs[id].name)}</option>`).join("")}</select></div>
-    <p class="sub">Every run in the last 90 days, read from the system journal. Click one for its full log.</p><div class="card" id="rc"><div class="empty">Loading…</div></div>`;
+    <p class="sub">Every run in the last 90 days. Click one for its full log.</p><div class="card" id="rc"><div class="empty">Loading…</div></div>`;
   $("#js").onchange = () => go("runs", $("#js").value);
   let rs; try { rs = await api(`/api/runs?job=${jid}&days=90`); } catch (e) { return fail(e); }
   if (S.view !== "runs") return;
@@ -588,7 +598,7 @@ async function settingsView() {
     <div class="card"><div class="row"><h2 style="margin:0">Desktop notifications</h2><span class="spacer"></span><button class="btn sm" data-test="desktop">Send test</button></div>
       <label class="cb" style="margin-top:12px"><input type="checkbox" id="de" ${d.enabled ? "checked" : ""}> Show a desktop notification</label>
       <label class="f" style="margin-top:10px;max-width:280px">For user<input type="text" id="du" value="${esc(d.user || st.desktop_user)}"></label>
-      <div class="meta">Reaches the user only while they are logged in to a desktop session.</div></div>
+      <div class="meta">Reaches the user only while they are signed in${WIN() ? " (as a Windows notification; enter the Windows user name, or DOMAIN\\name)" : " to a desktop session"}.</div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Email</h2><span class="spacer"></span><button class="btn sm" data-test="email">Send test</button></div>
       <label class="cb" style="margin-top:12px"><input type="checkbox" id="ee" ${e.enabled ? "checked" : ""}> Send alert emails</label>
       <div class="form-2" style="margin-top:12px">
@@ -599,12 +609,12 @@ async function settingsView() {
         <label class="f">Password<input type="password" id="epw" placeholder="${e.has_password ? "saved; leave blank to keep" : ""}" autocomplete="new-password"></label>
         <label class="f">From<input type="email" id="ef" value="${esc(e.from)}" placeholder="backups@example.com"></label>
         <label class="f">To (comma-separated)<input type="text" id="et" value="${esc((e.to || []).join(", "))}" placeholder="you@example.com"></label></div>
-      <div class="meta" style="margin-top:8px">The password goes in a root-only file, never in the config.</div></div>
+      <div class="meta" style="margin-top:8px">The password goes in an admin-only file, never in the config.</div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Webhook</h2><span class="spacer"></span><button class="btn sm" data-test="webhook">Send test</button></div>
       <label class="cb" style="margin-top:12px"><input type="checkbox" id="we" ${w.enabled ? "checked" : ""}> Post alerts to a webhook</label>
       <label class="f" style="margin-top:10px">Slack, Mattermost or Discord incoming-webhook URL<input type="text" id="wu" class="mono-in" value="${esc(w.url)}" placeholder="https://hooks.slack.com/services/…"></label></div>
     <div class="card"><h2>Restores</h2><label class="f">Folders restores may write into, one per line<textarea id="rr" style="min-height:70px">${esc((st.restore_roots || []).join("\n"))}</textarea></label>
-      <label class="f" style="margin-top:10px;max-width:280px">Restored files are owned by<input type="text" id="ru" value="${esc(st.desktop_user)}"></label></div>
+      <label class="f" style="margin-top:10px;max-width:280px">${P().features.chown ? "Restored files are owned by" : "Desktop user"}<input type="text" id="ru" value="${esc(st.desktop_user)}"></label></div>
     </div><div class="row" style="margin-top:16px"><span class="spacer"></span><button class="btn primary" id="save">Save settings</button></div>`;
   const body = () => ({ desktop_user: $("#ru").value.trim(), restore_roots: $("#rr").value.split("\n"),
     notifications: { desktop: { enabled: $("#de").checked, user: $("#du").value.trim() },
@@ -618,11 +628,12 @@ async function settingsView() {
 }
 
 /* ================================================================ login + boot */
-function renderLogin() {
+async function renderLogin() {
   clearTimers();
+  if (!S.hello) { try { S.hello = (await (await fetch("/api/hello")).json()).platform; } catch (e) { } }
   $("#root").innerHTML = `<div class="login card"><div class="row"><img src="icon.svg" width="32" alt=""><h1 style="margin:0">Restic Console</h1></div>
-    <p class="sub" style="margin-top:10px">Open this from the <b>Restic Console</b> app in your launcher; it signs you in automatically.
-    Or paste the token from <span class="mono">/etc/restic-console/token</span>:</p>
+    <p class="sub" style="margin-top:10px">Open this from the <b>Restic Console</b> app in your ${WIN() ? "Start menu" : "launcher"}; it signs you in automatically.
+    Or paste the token from <span class="mono">${esc(P().token_file || "the token file")}</span>${WIN() ? " (open it as an administrator)" : ""}:</p>
     <div class="row"><input type="text" id="tok" style="flex:1" placeholder="token"><button class="btn primary" id="go">Sign in</button></div></div>`;
   $("#go").onclick = async () => { try { await api("/api/login", { token: $("#tok").value.trim() }); boot(); } catch (e) { toast(e.message, true); } };
 }
