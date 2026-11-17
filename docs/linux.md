@@ -1,25 +1,48 @@
 # Restic Console on Linux
 
-Works on any distribution with **systemd**, **Python 3.9+** and **restic 0.16+** (Debian 12+, Ubuntu 22.04+,
-Fedora, Arch, openSUSE, …).
+Works on any distribution that boots with **systemd** and has **Python 3.9+**. restic 0.16+ comes from your
+package manager, or the installer downloads the official release for you.
+
+| Distribution | Tested in CI | Notes |
+|---|---|---|
+| Ubuntu 22.04+ | yes | |
+| Debian 12+ | yes | Debian 12's restic is too old; use `--get-restic` |
+| Fedora | yes | SELinux stays enforcing |
+| Rocky / Alma / RHEL 9 | yes | no restic package; use `--get-restic` |
+| RHEL family 8 | no | needs a newer Python: `sudo dnf install python3.11` |
+| Arch, Manjaro, EndeavourOS | yes (Arch) | |
+| openSUSE Tumbleweed / Leap | yes (Tumbleweed) | |
+| Linux Mint, Pop!_OS, Zorin, elementary | via Ubuntu | |
+
+Not supported: distributions without systemd (Alpine, Void, Devuan, Gentoo with OpenRC) and NixOS, which manages
+`/etc/systemd` itself.
 
 ## Install
 
 ```sh
-# 1. restic and Python
-sudo apt install restic python3            # Debian / Ubuntu
-sudo dnf install restic python3            # Fedora
-sudo pacman -S restic python               # Arch
+# 1. Python, and restic if your distribution has a recent one
+sudo apt install python3 restic                  # Debian / Ubuntu / Mint
+sudo dnf install python3 restic                  # Fedora
+sudo pacman -S python restic                     # Arch
+sudo zypper install python3 restic               # openSUSE
 
 # 2. Restic Console
 git clone https://github.com/king-networks/Restic-Console.git
 cd Restic-Console
-sudo ./linux/install.sh                    # desktop user = you (the user running sudo)
-sudo ./linux/install.sh --user alice       # or name the desktop user
+sudo ./linux/install.sh                          # desktop user = you (the user running sudo)
 ```
 
-If your distribution's restic is older than 0.16, install the [official binary](https://github.com/restic/restic/releases)
-to `/usr/local/bin/restic` and re-run the installer.
+Installer options:
+
+| Option | What it does |
+|---|---|
+| `--user NAME` | desktop user who gets alerts and whose home is the default restore folder |
+| `--get-restic` | download the latest official restic to `/usr/local/bin/restic` and check its SHA-256 (asked automatically when restic is missing or older than 0.16) |
+| `--restic PATH` | use this restic binary |
+| `--python PATH` | use this Python 3.9+ interpreter |
+
+For desktop alerts you also need `notify-send` (package `libnotify-bin` on Debian/Ubuntu, `libnotify` elsewhere); the
+installer tells you if it is missing.
 
 The installer:
 
@@ -55,7 +78,7 @@ sudo ./linux/uninstall.sh            # keeps /etc/restic-console and the run his
 sudo ./linux/uninstall.sh --purge    # deletes them too. Save your repository passwords first!
 ```
 
-Backup repositories are never touched.
+Backup repositories are never touched. A restic downloaded by `--get-restic` stays in `/usr/local/bin/restic`.
 
 ## Where things are
 

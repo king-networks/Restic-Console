@@ -41,12 +41,14 @@ own machine, listens on `127.0.0.1` only, and opens as its own app window.
 You need restic 0.16 or newer and Python 3.9 or newer. Download the [latest release](https://github.com/king-networks/Restic-Console/releases)
 (or `git clone` this repository), then:
 
-### Linux (systemd)
+### Linux (Ubuntu, Debian, Fedora, RHEL/Rocky/Alma, Arch, openSUSE and others with systemd)
 
 ```sh
-sudo apt install restic python3          # Fedora: sudo dnf install restic python3
+sudo apt install restic python3          # or dnf / pacman / zypper
 sudo ./linux/install.sh                  # or: sudo ./linux/install.sh --user alice
 ```
+
+No recent restic in your distribution? Add `--get-restic` and the installer downloads the official release.
 
 Log out and back in once (the installer adds you to the `restic-console` group), then open **Restic Console** from the
 application menu or run `restic-console`. Details: [docs/linux.md](docs/linux.md).

@@ -16,6 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Run history is kept by Restic Console itself (`/var/lib/restic-console` or `C:\ProgramData\ResticConsole\state`), the
   same on both systems.
 - A *Sign out* link. Sessions are now random per sign-in (30 days, in memory) instead of derived from the token.
+- Linux installer works across distributions: Debian/Ubuntu, Fedora, RHEL family 9, Arch and openSUSE are installed
+  and smoke-tested in CI. It finds a Python 3.9+ interpreter (including `python3.11` etc.), finds restic outside sudo's
+  PATH, sets SELinux labels, names the right package when something is missing, and `--get-restic` downloads the
+  official restic release (SHA-256 checked) when the distribution's package is missing or too old. `curl` is no longer
+  needed.
 - Linux launcher falls back to Edge, Brave or the default browser when Chrome/Chromium is missing.
 - Tests (unit, integration with real restic, and a real install on Ubuntu and Windows in CI), contributor docs,
   security policy, and issue templates.
